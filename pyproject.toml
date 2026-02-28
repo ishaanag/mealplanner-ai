@@ -1,0 +1,36 @@
+[project]
+name = "mealplanner-ai"
+version = "0.1.0"
+description = "AI-powered meal planning tool with macro tracking, pantry management, and shopping lists"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "google-generativeai>=0.8.0",
+    "pyyaml>=6.0",
+    "rich>=13.0",
+    "python-frontmatter>=1.0.0",
+    "click>=8.0",
+    "pydantic>=2.0",
+    "python-dateutil>=2.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=24.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+mealplan = "mealplanner.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mealplanner"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
