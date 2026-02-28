@@ -12,6 +12,7 @@ An AI-powered meal planning tool that creates personalized weekly meal plans bas
 - **😋 Mood-Based Filtering**: Filter by flavor preferences (spicy, savory, sweet, etc.)
 - **⏱️ Time-Aware**: Respects cooking time constraints
 - **🍎 Snack Suggestions**: Fill macro gaps with smart snack recommendations
+- **🍳 Meal Prep Optimization**: Batch cooking suggestions with prep schedules to save time
 
 ## Installation
 
@@ -185,7 +186,7 @@ updated: 2026-02-28
 ## Roadmap
 
 - [ ] Calendar integration for scheduling cooking time
-- [ ] Meal prep optimization (batch cooking suggestions)
+- [x] Meal prep optimization (batch cooking suggestions)
 - [ ] Grocery store integration
 - [ ] Recipe scaling
 - [ ] Nutritional balance analysis over time

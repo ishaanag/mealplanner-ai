@@ -423,10 +423,11 @@ AVAILABLE RECIPES:
 
 PRIORITIES (in order of importance):
 1. **MINIMIZE SHOPPING** - STRONGLY prefer recipes that use pantry ingredients (this is critical!)
-2. Hit daily calorie and protein targets using meals + snacks
-3. Keep main meal portions reasonable (1-1.5x servings)
-4. Use snacks to fill calorie gaps (300-600 cal each)
-5. Provide variety across the week
+2. **BATCH COOKING** - Choose recipes that share the same protein (e.g., multiple chicken dishes) so we can cook protein once and use it across multiple days
+3. Hit daily calorie and protein targets using meals + snacks
+4. Keep main meal portions reasonable (1-1.5x servings)
+5. Use snacks to fill calorie gaps (300-600 cal each)
+6. Provide variety in flavors/cuisines while keeping core ingredients consistent
 
 Respond with a JSON array in this format:
 [
@@ -836,42 +837,255 @@ Use EXACT recipe names from the list for main meals. Plan all {days} days."""
         lines.append("## 📊 Weekly Average")
         lines.append(avg_analysis.to_summary())
         
+        # Add meal prep guide
+        prep_summary = self.get_prep_summary(meal_plan)
+        lines.append(prep_summary)
+        
         return "\n".join(lines)
     
     def optimize_for_meal_prep(self, meal_plan: MealPlan) -> dict:
-        """Analyze meal plan for meal prep opportunities."""
-        prep_recipes = []
-        prep_suggestions = []
+        """Analyze meal plan for meal prep opportunities.
         
-        # Find recipes that can be prepped
+        Identifies:
+        - Proteins that can be batch cooked (chicken, beef, etc.)
+        - Grains/starches that can be made ahead (rice, pasta)
+        - Vegetables that can be prepped together
+        - Sauces/marinades that can be prepared in advance
+        - Time savings estimates
+        """
+        from collections import defaultdict
+        
+        # Common batch-cookable ingredients
+        BATCH_PROTEINS = {
+            'chicken': ['chicken breast', 'chicken thigh', 'chicken', 'poultry'],
+            'beef': ['beef', 'ground beef', 'steak', 'brisket'],
+            'pork': ['pork', 'bacon', 'sausage', 'ham'],
+            'eggs': ['egg', 'eggs'],
+            'shrimp': ['shrimp', 'prawns'],
+            'tofu': ['tofu', 'tempeh'],
+        }
+        
+        BATCH_GRAINS = {
+            'rice': ['rice', 'jasmine rice', 'basmati', 'brown rice'],
+            'pasta': ['pasta', 'spaghetti', 'noodles', 'linguine', 'penne'],
+            'quinoa': ['quinoa'],
+            'oats': ['oats', 'oatmeal'],
+        }
+        
+        PREP_VEGETABLES = ['onion', 'garlic', 'bell pepper', 'carrot', 'celery', 
+                          'tomato', 'ginger', 'scallion', 'mushroom', 'broccoli',
+                          'spinach', 'cabbage', 'zucchini']
+        
+        # Track ingredients across all meals
+        protein_usage = defaultdict(list)  # protein_type -> [(day, recipe, amount)]
+        grain_usage = defaultdict(list)
+        vegetable_prep = defaultdict(list)
+        
+        # Analyze each meal
         for day in meal_plan.days:
             for meal in day.meals:
-                if meal.recipe and meal.recipe.can_meal_prep:
-                    prep_recipes.append({
-                        "recipe": meal.recipe.name,
-                        "day": day.day,
-                        "prep_days": meal.recipe.prep_ahead_days,
-                    })
+                if not meal.recipe or meal.recipe.is_ai_suggested:
+                    continue
+                
+                for ing in meal.recipe.ingredients:
+                    ing_lower = ing.name.lower()
+                    
+                    # Check for batch-cookable proteins
+                    for protein_type, keywords in BATCH_PROTEINS.items():
+                        if any(kw in ing_lower for kw in keywords):
+                            protein_usage[protein_type].append({
+                                'day': day.day,
+                                'recipe': meal.recipe.name,
+                                'ingredient': ing.name,
+                                'servings': meal.servings,
+                            })
+                            break
+                    
+                    # Check for batch-cookable grains
+                    for grain_type, keywords in BATCH_GRAINS.items():
+                        if any(kw in ing_lower for kw in keywords):
+                            grain_usage[grain_type].append({
+                                'day': day.day,
+                                'recipe': meal.recipe.name,
+                                'ingredient': ing.name,
+                                'servings': meal.servings,
+                            })
+                            break
+                    
+                    # Check for vegetables to prep
+                    for veg in PREP_VEGETABLES:
+                        if veg in ing_lower:
+                            vegetable_prep[veg].append({
+                                'day': day.day,
+                                'recipe': meal.recipe.name,
+                                'ingredient': ing.name,
+                            })
+                            break
         
-        # Group by recipe for batch cooking suggestions
-        recipe_counts = {}
-        for pr in prep_recipes:
-            name = pr["recipe"]
-            if name not in recipe_counts:
-                recipe_counts[name] = {"count": 0, "days": []}
-            recipe_counts[name]["count"] += 1
-            recipe_counts[name]["days"].append(pr["day"])
+        # Generate batch cooking suggestions
+        batch_suggestions = []
+        time_saved_minutes = 0
         
-        for recipe_name, info in recipe_counts.items():
-            if info["count"] >= 2:
-                prep_suggestions.append({
-                    "recipe": recipe_name,
-                    "suggestion": f"Batch cook for days {info['days']}",
-                    "time_saved": "~30 min",
+        # Protein batch cooking
+        for protein, uses in protein_usage.items():
+            if len(uses) >= 2:
+                days = sorted(set(u['day'] for u in uses))
+                recipes = list(set(u['recipe'] for u in uses))
+                batch_suggestions.append({
+                    'category': 'protein',
+                    'item': protein.title(),
+                    'action': f"Batch cook {protein} for {len(uses)} meals",
+                    'days_used': days,
+                    'recipes': recipes[:3],  # Limit to 3 recipe names
+                    'time_saved': 15 * (len(uses) - 1),  # ~15 min saved per additional use
+                    'prep_day': 'Day 0 (Prep Day)' if days[0] == 1 else f'Day {days[0] - 1}',
+                })
+                time_saved_minutes += 15 * (len(uses) - 1)
+        
+        # Grain batch cooking
+        for grain, uses in grain_usage.items():
+            if len(uses) >= 2:
+                days = sorted(set(u['day'] for u in uses))
+                batch_suggestions.append({
+                    'category': 'grain',
+                    'item': grain.title(),
+                    'action': f"Make a large batch of {grain} for the week",
+                    'days_used': days,
+                    'time_saved': 10 * (len(uses) - 1),
+                    'prep_day': 'Day 0 (Prep Day)',
+                })
+                time_saved_minutes += 10 * (len(uses) - 1)
+        
+        # Vegetable prep suggestions
+        veggies_to_prep = []
+        for veg, uses in vegetable_prep.items():
+            if len(uses) >= 2:
+                veggies_to_prep.append({
+                    'vegetable': veg,
+                    'count': len(uses),
+                    'days': sorted(set(u['day'] for u in uses)),
                 })
         
+        if veggies_to_prep:
+            veg_names = [v['vegetable'] for v in sorted(veggies_to_prep, key=lambda x: -x['count'])[:5]]
+            batch_suggestions.append({
+                'category': 'vegetables',
+                'item': 'Vegetable Prep',
+                'action': f"Chop/prep {', '.join(veg_names)} in one session",
+                'days_used': list(range(1, len(meal_plan.days) + 1)),
+                'time_saved': 5 * len(veg_names),
+                'prep_day': 'Day 0 (Prep Day)',
+            })
+            time_saved_minutes += 5 * len(veg_names)
+        
+        # Generate prep schedule
+        prep_schedule = self._generate_prep_schedule(meal_plan, batch_suggestions)
+        
         return {
-            "prep_recipes": prep_recipes,
-            "batch_suggestions": prep_suggestions,
-            "total_preppable": len(prep_recipes),
+            'batch_suggestions': batch_suggestions,
+            'prep_schedule': prep_schedule,
+            'time_saved_minutes': time_saved_minutes,
+            'protein_summary': {k: len(v) for k, v in protein_usage.items() if len(v) >= 2},
+            'grain_summary': {k: len(v) for k, v in grain_usage.items() if len(v) >= 2},
         }
+    
+    def _generate_prep_schedule(self, meal_plan: MealPlan, batch_suggestions: list) -> list:
+        """Generate a day-by-day prep schedule."""
+        schedule = []
+        
+        # Prep day (Day 0) - do all major prep
+        prep_day_tasks = []
+        for suggestion in batch_suggestions:
+            if suggestion['prep_day'] == 'Day 0 (Prep Day)':
+                prep_day_tasks.append({
+                    'task': suggestion['action'],
+                    'time': f"~{suggestion['time_saved'] + 10} min",  # Base time + saved time
+                    'category': suggestion['category'],
+                })
+        
+        if prep_day_tasks:
+            total_prep_time = sum(int(t['time'].replace('~', '').replace(' min', '')) for t in prep_day_tasks)
+            schedule.append({
+                'day': 'Prep Day (before Day 1)',
+                'tasks': prep_day_tasks,
+                'total_time': f"~{total_prep_time} min",
+            })
+        
+        # Daily tasks
+        for day in meal_plan.days:
+            daily_tasks = []
+            
+            for meal in day.meals:
+                if not meal.recipe or meal.recipe.is_ai_suggested:
+                    continue
+                
+                # Estimate remaining cook time after batch prep
+                base_time = 30  # Default if no time specified
+                if meal.recipe.total_time:
+                    base_time = int(meal.recipe.total_time.total_seconds() / 60)
+                
+                # Reduce time if ingredients were batch prepped
+                time_reduction = 0
+                for suggestion in batch_suggestions:
+                    if day.day in suggestion.get('days_used', []):
+                        if suggestion['category'] == 'protein':
+                            time_reduction += 10
+                        elif suggestion['category'] == 'grain':
+                            time_reduction += 8
+                        elif suggestion['category'] == 'vegetables':
+                            time_reduction += 5
+                
+                remaining_time = max(10, base_time - time_reduction)
+                
+                daily_tasks.append({
+                    'meal': meal.meal_type.value.title(),
+                    'recipe': meal.recipe.name,
+                    'cook_time': f"~{remaining_time} min" + (f" (was {base_time} min)" if time_reduction > 0 else ""),
+                })
+            
+            if daily_tasks:
+                total_daily = sum(int(t['cook_time'].split('~')[1].split(' ')[0]) for t in daily_tasks)
+                schedule.append({
+                    'day': f'Day {day.day}',
+                    'tasks': daily_tasks,
+                    'total_time': f"~{total_daily} min cooking",
+                })
+        
+        return schedule
+    
+    def get_prep_summary(self, meal_plan: MealPlan) -> str:
+        """Generate a meal prep summary with batch cooking suggestions."""
+        prep_data = self.optimize_for_meal_prep(meal_plan)
+        
+        lines = ["\n---", "## 🍳 Meal Prep Guide\n"]
+        
+        if prep_data['time_saved_minutes'] > 0:
+            lines.append(f"**Estimated time saved: ~{prep_data['time_saved_minutes']} minutes** by batch cooking!\n")
+        
+        # Batch cooking suggestions
+        if prep_data['batch_suggestions']:
+            lines.append("### Batch Cooking Opportunities\n")
+            
+            for suggestion in sorted(prep_data['batch_suggestions'], key=lambda x: -x['time_saved']):
+                emoji = {'protein': '🥩', 'grain': '🍚', 'vegetables': '🥬'}.get(suggestion['category'], '📦')
+                lines.append(f"- {emoji} **{suggestion['item']}**: {suggestion['action']}")
+                lines.append(f"  - Used on days: {', '.join(map(str, suggestion['days_used']))}")
+                lines.append(f"  - Time saved: ~{suggestion['time_saved']} min")
+                if 'recipes' in suggestion:
+                    lines.append(f"  - Recipes: {', '.join(suggestion['recipes'][:2])}")
+                lines.append("")
+        
+        # Prep schedule
+        if prep_data['prep_schedule']:
+            lines.append("### 📅 Prep Schedule\n")
+            
+            for day_schedule in prep_data['prep_schedule']:
+                lines.append(f"**{day_schedule['day']}** ({day_schedule['total_time']})")
+                for task in day_schedule['tasks']:
+                    if 'meal' in task:
+                        lines.append(f"  - {task['meal']}: {task['recipe']} - {task['cook_time']}")
+                    else:
+                        lines.append(f"  - {task['task']} ({task['time']})")
+                lines.append("")
+        
+        return "\n".join(lines)
